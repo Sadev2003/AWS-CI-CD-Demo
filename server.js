@@ -1,5 +1,5 @@
 const http = require("http");
-const VERSION = process.env.APP_VERSION || "v2";
+const VERSION = process.env.APP_VERSION || "v4";
 
 const server = http.createServer((req, res) => {
   if (req.url === "/health") {

@@ -57,3 +57,38 @@ jobs:
           docker build -t $REGISTRY/demo-app:$TAG .
           docker push $REGISTRY/demo-app:$TAG
           echo "Pushed demo-app:$TAG"
+
+  deploy:
+    needs: push-image
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Assume AWS role via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::590183783666:role/github-actions-deploy-role
+          aws-region: ap-south-1
+
+      - name: Deploy to EC2 via SSM
+        env:
+          INSTANCE_ID: i-0ec66a89c6ba0db3d
+        run: |
+          TAG=${GITHUB_SHA::7}
+          CMD_ID=$(aws ssm send-command \
+            --instance-ids $INSTANCE_ID \
+            --document-name AWS-RunShellScript \
+            --parameters '{"commands":["export HOME=/root","export PATH=$PATH:/snap/bin","/home/ubuntu/deploy.sh '"$TAG"'"]}' \
+            --query Command.CommandId --output text)
+          echo "SSM command: $CMD_ID"
+          sleep 5
+          aws ssm wait command-executed --command-id $CMD_ID --instance-id $INSTANCE_ID || true
+          STATUS=$(aws ssm get-command-invocation --command-id $CMD_ID --instance-id $INSTANCE_ID --query Status --output text)
+          echo "Status: $STATUS"
+          aws ssm get-command-invocation --command-id $CMD_ID --instance-id $INSTANCE_ID --query StandardOutputContent --output text
+          if [ "$STATUS" != "Success" ]; then
+            aws ssm get-command-invocation --command-id $CMD_ID --instance-id $INSTANCE_ID --query StandardErrorContent --output text
+            exit 1
+          fi

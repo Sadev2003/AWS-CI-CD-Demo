@@ -28,3 +28,32 @@ jobs:
           done
           docker logs test
           exit 1
+
+  push-image:
+    needs: build-and-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assume AWS role via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::590183783666:role/github-actions-deploy-role
+          aws-region: ap-south-1
+
+      - name: Log in to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push image
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          TAG=${GITHUB_SHA::7}
+          docker build -t $REGISTRY/demo-app:$TAG .
+          docker push $REGISTRY/demo-app:$TAG
+          echo "Pushed demo-app:$TAG"
